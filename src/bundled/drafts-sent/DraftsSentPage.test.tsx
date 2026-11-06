@@ -285,8 +285,11 @@ it("shows archived conversations' drafts on request, labeled and clearable, with
       name: "Open conversation in #old-plans, archived: Stranded note",
     }),
   ).toBeInTheDocument();
-  // Shown, still not counted.
+  // Shown, still not counted: by the sidebar badge or the Drafts heading.
   expect(screen.getByLabelText("1 draft")).toBeInTheDocument();
+  expect(document.getElementById("drafts-sent-drafts")).toHaveTextContent(
+    /^Drafts\s*1$/,
+  );
   await user.click(
     within(list).getByRole("button", {
       name: "Clear draft in #old-plans, archived: Stranded note",
