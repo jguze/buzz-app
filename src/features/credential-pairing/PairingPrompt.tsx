@@ -9,7 +9,8 @@ import {
 } from "./service";
 
 /** Asks the person to approve a command-line tool acting as them. A request
- * for a community they haven't saved here is declined without asking. */
+ * for a community they haven't saved here is refused without asking, and the
+ * tool is told why. */
 export function PairingPrompt({
   communities,
 }: {
@@ -25,7 +26,7 @@ export function PairingPrompt({
       onPairingEvents({
         request(next) {
           if (!isSavedCommunity(next.relay, saved.current)) {
-            void answerPairing(next.id, false);
+            void answerPairing(next.id, "unsaved");
             return;
           }
           setRequest(next);
@@ -42,7 +43,7 @@ export function PairingPrompt({
   open.current = request?.id ?? null;
   useEffect(
     () => () => {
-      if (open.current) void answerPairing(open.current, false);
+      if (open.current) void answerPairing(open.current, "deny");
     },
     [],
   );
@@ -60,7 +61,7 @@ export function PairingPrompt({
   }, [left]);
   if (!request) return null;
   const answer = (approve: boolean) => {
-    void answerPairing(request.id, approve);
+    void answerPairing(request.id, approve ? "allow" : "deny");
     setRequest(null);
   };
   return (

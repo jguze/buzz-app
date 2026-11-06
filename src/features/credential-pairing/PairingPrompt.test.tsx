@@ -53,19 +53,39 @@ it("names the tool, community and process, with Deny focused", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Allow" }));
   expect(invoke).toHaveBeenCalledWith("credential_pair_answer", {
     id: "r1",
-    approve: true,
+    answer: "allow",
   });
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
-it("declines a community not saved here without asking", async () => {
+it("refuses a community not saved here without asking, saying why", async () => {
   render(<PairingPrompt communities={["wss://relay.example"]} />);
   await ask({ ...request, relay: "wss://other.example/" });
   expect(invoke).toHaveBeenCalledWith("credential_pair_answer", {
     id: "r1",
-    approve: false,
+    answer: "unsaved",
   });
   expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+it("declines on Deny, and when the page goes away mid-request", async () => {
+  const { unmount } = render(
+    <PairingPrompt communities={["wss://relay.example"]} />,
+  );
+  await ask(request);
+  await userEvent.click(await screen.findByRole("button", { name: "Deny" }));
+  expect(invoke).toHaveBeenCalledWith("credential_pair_answer", {
+    id: "r1",
+    answer: "deny",
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await ask({ ...request, id: "r2" });
+  await screen.findByRole("alertdialog");
+  unmount();
+  expect(invoke).toHaveBeenCalledWith("credential_pair_answer", {
+    id: "r2",
+    answer: "deny",
+  });
 });
 
 it("closes when native ends the request, and when its time runs out", async () => {

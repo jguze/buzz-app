@@ -73,6 +73,16 @@ pub(crate) enum Notice {
 }
 pub(crate) type Notify = Arc<dyn Fn(Notice) + Send + Sync>;
 
+/// The page's answer to a request.
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Answer {
+    Allow,
+    Deny,
+    /// Not one of the person's communities: refused without asking them.
+    Unsaved,
+}
+
 /// The human a pairing acts as, as far as it is known yet.
 pub(crate) enum Human {
     /// Settled and signed in to Buzz.
@@ -99,7 +109,7 @@ struct State {
     records: Option<Result<Vec<Record>, String>>,
     /// When `last_used` last reached the keychain.
     flushed: u64,
-    pending: Option<(String, oneshot::Sender<bool>)>,
+    pending: Option<(String, oneshot::Sender<Answer>)>,
     asked: VecDeque<Instant>,
     /// Bumped by every revoke-all; a token admitted, or an approval begun,
     /// under an earlier one never acts or is saved.
@@ -354,7 +364,15 @@ impl Pairings {
             expires_in: APPROVAL.as_secs(),
         }));
         match tokio::time::timeout(APPROVAL, answer).await {
-            Ok(Ok(true)) => {}
+            Ok(Ok(Answer::Allow)) => {}
+            Ok(Ok(Answer::Unsaved)) => {
+                return Err(Failure::new(
+                    "denied",
+                    &format!(
+                        "{relay} isn't one of your communities in Buzz; join it in Buzz, or pair for one you've joined"
+                    ),
+                ))
+            }
             Ok(_) => return Err(Failure::new("denied", "Pairing was declined in Buzz")),
             Err(_) => {
                 return Err(Failure::new(
@@ -395,7 +413,7 @@ impl Pairings {
     }
 
     /// The human's answer to request `id`; a stale id does nothing.
-    pub(crate) fn answer(&self, id: &str, approve: bool) {
+    pub(crate) fn answer(&self, id: &str, answer: Answer) {
         let pending = {
             let mut state = self.state();
             match &state.pending {
@@ -404,7 +422,7 @@ impl Pairings {
             }
         };
         if let Some((_, send)) = pending {
-            let _ = send.send(approve);
+            let _ = send.send(answer);
         }
     }
 

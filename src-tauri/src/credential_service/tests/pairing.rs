@@ -40,7 +40,7 @@ async fn paired(fixture: &Fixture) -> String {
     let service = fixture.service.clone();
     let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, RELAY]).await });
     let id = asked(&fixture.notices).await;
-    fixture.service.0.pairings.answer(&id, true);
+    fixture.service.0.pairings.answer(&id, Answer::Allow);
     let (status, reply) = pairing.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{reply}");
     let result: Value = serde_json::from_str(reply["result"].as_str().unwrap()).unwrap();
@@ -81,12 +81,39 @@ async fn a_declined_pairing_is_denied_and_saves_nothing() {
     let service = fixture.service.clone();
     let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, RELAY]).await });
     let id = asked(&fixture.notices).await;
-    fixture.service.0.pairings.answer(&id, false);
+    fixture.service.0.pairings.answer(&id, Answer::Deny);
+    let reply = pairing.await.unwrap();
+    assert_eq!(error(&reply), (StatusCode::FORBIDDEN, "denied"));
+    assert_eq!(reply.1["message"], "Pairing was declined in Buzz");
+    assert!(fixture.keychain.value.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_relay_not_saved_in_buzz_is_denied_saying_so() {
+    // The CLI's default relay, when neither `--relay` nor `BUZZ_RELAY_URL` is set.
+    const UNSAVED: &str = "ws://localhost:3000/";
+    let fixture = fixture();
+    let service = fixture.service.clone();
+    let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, UNSAVED]).await });
+    let id = asked(&fixture.notices).await;
+    fixture.service.0.pairings.answer(&id, Answer::Unsaved);
+    let reply = pairing.await.unwrap();
+    assert_eq!(error(&reply), (StatusCode::FORBIDDEN, "denied"));
     assert_eq!(
-        error(&pairing.await.unwrap()),
-        (StatusCode::FORBIDDEN, "denied")
+        reply.1["message"],
+        "ws://localhost:3000/ isn't one of your communities in Buzz; join it in Buzz, or pair for one you've joined"
     );
     assert!(fixture.keychain.value.lock().unwrap().is_none());
+}
+
+#[test]
+fn the_page_answers_with_these_names() {
+    let answer = |value: Value| serde_json::from_value::<Answer>(value);
+    assert!(matches!(answer(json!("allow")), Ok(Answer::Allow)));
+    assert!(matches!(answer(json!("deny")), Ok(Answer::Deny)));
+    assert!(matches!(answer(json!("unsaved")), Ok(Answer::Unsaved)));
+    assert!(answer(json!(false)).is_err());
+    assert!(answer(json!("Allow")).is_err());
 }
 
 #[tokio::test(start_paused = true)]
@@ -111,7 +138,7 @@ async fn an_unanswered_pairing_needs_approval_and_closes_its_prompt() {
         .iter()
         .any(|notice| matches!(notice, Notice::Closed(closed) if *closed == id)));
     // A late answer issues nothing.
-    fixture.service.0.pairings.answer(&id, true);
+    fixture.service.0.pairings.answer(&id, Answer::Allow);
     assert!(fixture.keychain.value.lock().unwrap().is_none());
 }
 
@@ -126,7 +153,7 @@ async fn one_request_waits_at_a_time_and_three_per_window() {
         error(&second),
         (StatusCode::TOO_MANY_REQUESTS, "rate_limited")
     );
-    fixture.service.0.pairings.answer(&id, false);
+    fixture.service.0.pairings.answer(&id, Answer::Deny);
     first.await.unwrap();
     // Paused only now: the human's key is read off this runtime, and while a
     // request waits that idle time would jump its clock past the approval.
@@ -286,7 +313,7 @@ async fn a_keychain_failure_issues_nothing_and_keeps_rows() {
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     };
-    fixture.service.0.pairings.answer(&id, true);
+    fixture.service.0.pairings.answer(&id, Answer::Allow);
     let reply = pairing.await.unwrap();
     assert_eq!(error(&reply).1, "unavailable");
     assert!(reply.1["result"].as_str().unwrap().is_empty());
@@ -545,7 +572,7 @@ async fn an_approval_saved_during_a_revoke_all_returns_no_token() {
     let service = fixture.service.clone();
     let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, RELAY]).await });
     let id = asked(&fixture.notices).await;
-    fixture.service.0.pairings.answer(&id, true);
+    fixture.service.0.pairings.answer(&id, Answer::Allow);
     tokio::task::spawn_blocking(move || entered_rx.recv().unwrap())
         .await
         .unwrap();
@@ -567,7 +594,7 @@ async fn an_approval_after_a_revoke_all_saves_nothing() {
     let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, RELAY]).await });
     let id = asked(&fixture.notices).await;
     fixture.service.clear_pairings().await.unwrap();
-    fixture.service.0.pairings.answer(&id, true);
+    fixture.service.0.pairings.answer(&id, Answer::Allow);
     assert_eq!(error(&pairing.await.unwrap()).1, "denied");
     assert!(fixture.keychain.value.lock().unwrap().is_none());
 }

@@ -23,8 +23,12 @@ export type PairedTool = {
   expires: number;
 };
 
-export const answerPairing = (id: string, approve: boolean) =>
-  invoke<void>("credential_pair_answer", { id, approve });
+/** `unsaved` refuses a request for a community not saved here, telling the
+ * tool why, without asking the person. */
+export type PairAnswer = "allow" | "deny" | "unsaved";
+
+export const answerPairing = (id: string, answer: PairAnswer) =>
+  invoke<void>("credential_pair_answer", { id, answer });
 
 export const listPairedTools = () =>
   invoke<PairedTool[]>("credential_pairings_list");

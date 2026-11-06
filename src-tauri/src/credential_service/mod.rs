@@ -35,7 +35,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::{self as headers, HeaderName};
 use hyper::{Method, Request, Response, StatusCode};
 pub(crate) use pairing::Notice;
-use pairing::Pairings;
+use pairing::{Answer, Pairings};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -890,9 +890,9 @@ async fn respond(
 pub(crate) fn credential_pair_answer(
     service: tauri::State<'_, CredentialService>,
     id: String,
-    approve: bool,
+    answer: Answer,
 ) {
-    service.0.pairings.answer(&id, approve);
+    service.0.pairings.answer(&id, answer);
 }
 
 #[tauri::command]
