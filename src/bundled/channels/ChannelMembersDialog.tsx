@@ -556,6 +556,12 @@ function TeamRow({
   );
 }
 
+/** Whether removing `control` took the focus with it. Removal emits no blur and
+ * leaves the body focused, so focus anywhere else was moved there since. */
+function lostFocus(control: HTMLElement) {
+  return !control.isConnected && document.activeElement === document.body;
+}
+
 /** The one access dialog. Any conversation lists and adds members; a Solo chat
  * adds people under its share rule and can also be shared to a channel. */
 export function ChannelMembersDialog({
@@ -604,25 +610,85 @@ export function ChannelMembersDialog({
     session: RelaySession;
     channelId: string;
     change: MemberChange;
+    /** The list's offset when the change was chosen; the step replaces it. */
+    scrollTop: number;
   }>();
-  const selection =
+  const shownIntent =
     intent?.session === session && intent.channelId === channelId
-      ? intent.change
+      ? intent
       : undefined;
+  const selection = shownIntent?.change;
+  const scrollport = useRef<HTMLElement>(null);
+  // Set when the step is left by confirming. That member's Actions are then
+  // watched until its row leaves and until the change settles.
+  const confirmed = useRef(false);
+  const handOff = useRef<{ button: HTMLElement; at: number }>(undefined);
+  const keepInView = useRef<{ button: HTMLElement; scrollTop: number }>(
+    undefined,
+  );
   const chooseChange = useCallback(
     (change: MemberChange) => {
       setChangeError(undefined);
-      setIntent({ session, channelId, change });
+      confirmed.current = false;
+      setIntent({
+        session,
+        channelId,
+        change,
+        scrollTop: scrollport.current?.scrollTop ?? 0,
+      });
     },
     [session, channelId],
   );
-  const previousSelection = useRef(selection);
+  const lastShown = useRef(shownIntent);
+  // Before paint: the returning list keeps its offset and focuses the
+  // member's Actions. An addition's person has no member row, so it returns
+  // to Search, as does another session's or channel's list.
   useLayoutEffect(() => {
-    if (selection !== previousSelection.current)
-      (selection ? cancel.current : input.current)?.focus();
-    previousSelection.current = selection;
-  }, [selection]);
-  const scrollport = useRef<HTMLElement>(null);
+    const previous = lastShown.current;
+    if (shownIntent === previous) return;
+    lastShown.current = shownIntent;
+    if (shownIntent) {
+      cancel.current?.focus();
+      return;
+    }
+    const list = scrollport.current;
+    if (
+      !list ||
+      previous?.session !== session ||
+      previous.channelId !== channelId
+    ) {
+      input.current?.focus();
+      return;
+    }
+    list.scrollTop = previous.scrollTop;
+    const actions = [...list.querySelectorAll<HTMLElement>("[data-member]")];
+    const at = actions.findIndex(
+      (item) => item.dataset.member === previous.change.pubkey,
+    );
+    const button = actions[at];
+    (button ?? input.current)?.focus();
+    if (button && confirmed.current) {
+      handOff.current = { button, at };
+      keepInView.current = { button, scrollTop: list.scrollTop };
+    }
+  }, [shownIntent, session, channelId]);
+  // A removed row takes its focused Actions with it. Hand off to the member
+  // now at its index, the one before, or Search.
+  useLayoutEffect(() => {
+    const previous = handOff.current;
+    if (!previous || previous.button.isConnected) return;
+    handOff.current = undefined;
+    if (!lostFocus(previous.button)) return;
+    const actions = [
+      ...(scrollport.current?.querySelectorAll<HTMLElement>("[data-member]") ??
+        []),
+    ];
+    (
+      actions[previous.at] ??
+      actions[previous.at - 1] ??
+      input.current
+    )?.focus();
+  });
   const focusedAdd = useRef<{ key: string; button: HTMLButtonElement } | null>(
     null,
   );
@@ -635,12 +701,7 @@ export function ChannelMembersDialog({
   useLayoutEffect(() => {
     const previous = expandedFocus.current;
     expandedFocus.current = null;
-    if (
-      previous &&
-      !previous.button.isConnected &&
-      (document.activeElement === previous.button ||
-        document.activeElement === document.body)
-    )
+    if (previous && lostFocus(previous.button))
       document
         .getElementById(previous.rowId)
         ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
@@ -1314,6 +1375,21 @@ export function ChannelMembersDialog({
       (changeError?.session === session &&
         changeError.channelId === channelId &&
         changeError.message));
+  // A confirmed change's own error appears above the list and shortens it.
+  // When the change settles, keep its member's Actions in view, unless focus
+  // or the list has moved since the return.
+  const operationStatus = administration.operation?.status;
+  useLayoutEffect(() => {
+    const kept = keepInView.current;
+    if (!kept || operationStatus === "pending") return;
+    keepInView.current = undefined;
+    if (
+      administrationError &&
+      document.activeElement === kept.button &&
+      scrollport.current?.scrollTop === kept.scrollTop
+    )
+      kept.button.scrollIntoView({ block: "nearest" });
+  }, [administrationError, operationStatus]);
   const refreshMembers = () => {
     if (refreshing || mutationPending) return;
     setChangeError(undefined);
@@ -1879,6 +1955,7 @@ export function ChannelMembersDialog({
               disabled={!changePermitted}
               onClick={() => {
                 if (!changePermitted) return;
+                confirmed.current = true;
                 setIntent(undefined);
                 void session.memberAdministration
                   .run(channelId, selection)

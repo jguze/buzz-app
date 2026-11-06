@@ -203,12 +203,19 @@ const { session: sharedSession } = createRelaySession(
           memberAdministration: {
             sign: async (template: import("nostr-tools").EventTemplate) =>
               signed(viewer, template),
-            publish: async () => {
+            publish: async (event) => {
               publishStarted();
               await held;
               if (rejectRemoval)
                 throw new PublishRejected("Permission changed");
-              members.splice(members.indexOf(person.pubkey), 1);
+              // A removal takes the member it names off the roster.
+              if (event.kind === 9001) {
+                const at = members.indexOf(
+                  event.tags.find(([tag]) => tag === "p")?.[1] ?? "",
+                );
+                if (at === -1) throw new Error("Removed member is not listed");
+                members.splice(at, 1);
+              }
               clock++;
             },
           },
