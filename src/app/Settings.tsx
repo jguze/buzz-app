@@ -758,9 +758,59 @@ export function Settings({
   // first visit rather than with every Settings open, then kept like the rest.
   const [shortcutsVisited, setShortcutsVisited] = useState(false);
   if (selected === "shortcuts" && !shortcutsVisited) setShortcutsVisited(true);
-  // A switch made from inside the content hides or removes the control that
-  // made it, so focus moves into the section it opened.
+  // Every section scrolls in one scrollport, so each would open at the last
+  // one's offset. Side by side, keep each section's place while Settings is
+  // open, and start one not yet shown at its start. Stacked navigation scrolls
+  // with the content, and the sidebar starts sections there (Dialog).
+  const detailElement = useRef<HTMLDivElement>(null);
+  const sectionPlaces = useRef(new Map<string, number>());
+  const placedSection = useRef(selected);
+  // The section a switch made from inside the content opened (effect below).
   const contentFocus = useRef<string>(undefined);
+  useLayoutEffect(() => {
+    const content = detailElement.current;
+    // Standalone Settings scrolls its own detail; App mounts only the pane.
+    if (!navigationPane || !content) return;
+    // The layout can change at any time; stacked, the port leads with the nav.
+    const stacked = (port: Element) => !!port.querySelector(":scope > nav");
+    // A restore waits for content that renders late, until the user scrolls.
+    // A link starts its section at the top (contentFocus, below).
+    const shown = placedSection.current;
+    placedSection.current = selected;
+    let pending =
+      shown === selected || contentFocus.current === selected
+        ? undefined
+        : sectionPlaces.current.get(selected);
+    const restore = () => {
+      const port = scrollport(content);
+      if (port && !stacked(port)) port.scrollTop = pending ?? 0;
+    };
+    if (shown !== selected) restore();
+    const keep = ({ target }: Event) => {
+      if (!(target instanceof Node) || !target.contains(content)) return;
+      const port = scrollport(content);
+      if (!port || target !== port) return;
+      const side = !stacked(port);
+      // A clamped restore rests at the bottom edge, where the only way out is
+      // up, so the user's first scroll there clears it.
+      const clamped =
+        port.scrollTop >= port.scrollHeight - port.clientHeight - 1;
+      if (side && pending !== undefined && port.scrollTop < pending && clamped)
+        return;
+      pending = undefined;
+      if (side) sectionPlaces.current.set(selected, port.scrollTop);
+    };
+    const grown = new ResizeObserver(() => pending !== undefined && restore());
+    grown.observe(content);
+    document.addEventListener("scroll", keep, { capture: true, passive: true });
+    return () => {
+      grown.disconnect();
+      document.removeEventListener("scroll", keep, { capture: true });
+    };
+  }, [selected, navigationPane]);
+  // A switch made from inside the content hides or removes the control that
+  // made it, so focus moves into the section it opened. This effect must stay
+  // after the scroll-place one, so a link starts its section at the top.
   useLayoutEffect(() => {
     if (selected !== contentFocus.current) return;
     contentFocus.current = undefined;
@@ -1317,6 +1367,7 @@ export function Settings({
   const detail = (
     <>
       <div
+        ref={detailElement}
         className={`${styles.detail} buzz-settings-page`}
         data-integrated={navigationPane || undefined}
       >

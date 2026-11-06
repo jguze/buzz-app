@@ -1205,6 +1205,62 @@ test("plugin details preserves the catalog scroll position on open and close", a
   await expect(button(page, "More actions for Usage")).toHaveCount(0);
 });
 
+// WebKit keeps the offset it clamps to when a shorter pane replaces a longer
+// one, which jsdom cannot show.
+test("each Settings section keeps its own scroll place while Settings is open", async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.origin);
+  await openSettings(page);
+  await selectSettingsSection(page, "Shortcuts");
+  const port = settingsDialog(page).locator(".buzz-dialog-navigation-detail");
+  const offset = () => port.evaluate((element) => element.scrollTop);
+  // WebKit animates wheel scrolling: wait until two reads agree.
+  const settled = async () => {
+    let last;
+    await expect
+      .poll(
+        async () => {
+          const previous = last;
+          last = await offset();
+          return last === previous;
+        },
+        { intervals: [200] },
+      )
+      .toBe(true);
+    return last;
+  };
+  const near = (place) =>
+    expect
+      .poll(async () => Math.abs((await offset()) - place))
+      .toBeLessThanOrEqual(1);
+  // Wheel over the port's own padding, so no nested scroller takes it.
+  const box = await port.boundingBox();
+  await page.mouse.move(box.x + 8, box.y + box.height / 2);
+  for (let notch = 0; notch < 6; notch++) await page.mouse.wheel(0, 120);
+  const shortcuts = await settled();
+  expect(shortcuts).toBeGreaterThan(400);
+  await selectSettingsSection(page, "Appearance");
+  await near(0);
+  await port.evaluate((element) => {
+    element.scrollTop = 120;
+  });
+  const appearance = await settled();
+  expect(appearance).toBeGreaterThan(0);
+  await selectSettingsSection(page, "Shortcuts");
+  await near(shortcuts);
+  await page.goBack();
+  await expect(
+    page.getByRole("region", { name: "Appearance", exact: true }),
+  ).toBeVisible();
+  await near(appearance);
+  await closeSettings(page);
+  await openSettings(page);
+  await selectSettingsSection(page, "Shortcuts");
+  await near(0);
+});
+
 // Real shell + shared presentation + browser storage across reload. State/error
 // permutations stay in the communities and Local settings component tests.
 test("Local settings saves a device name without changing the community identity", async ({

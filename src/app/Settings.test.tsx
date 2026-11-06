@@ -13,7 +13,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { ToastProvider } from "../shared/design-system/ui/Toast";
 import { Context } from "@deepseek-ai/cordis";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { createCommunityMembership } from "../bundled/moderation/membership";
 import {
   SettingsCardsService,
@@ -1456,6 +1456,132 @@ it("links a plugin's details to the Settings sections it adds", async () => {
   expect(
     screen.queryByRole("complementary", { name: "GitHub details" }),
   ).toBeNull();
+  expect(document.getElementById("settings-content")).toHaveFocus();
+});
+
+/** Drives the ResizeObservers watching the Settings detail, for this test. */
+function resizeDetail() {
+  const Stub = globalThis.ResizeObserver;
+  const watching = new Set<() => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class extends Stub {
+      readonly run: () => void;
+      constructor(callback: ResizeObserverCallback) {
+        super(callback);
+        this.run = () => callback([], this);
+      }
+      observe(target: Element) {
+        if (target.classList.contains("buzz-settings-page"))
+          watching.add(this.run);
+      }
+      disconnect() {
+        watching.delete(this.run);
+      }
+    },
+  );
+  onTestFinished(() => {
+    vi.stubGlobal("ResizeObserver", Stub);
+  });
+  return () => {
+    for (const run of watching) act(run);
+  };
+}
+
+it("keeps each section's scroll place, and opens one it hasn't shown at its start", () => {
+  const resize = resizeDetail();
+  const { cards } = registry([card("alpha", "Alpha"), card("beta", "Beta")]);
+  const { view } = pluginSectionsFixture(cards);
+  // Every section shares the dialog's one scrollport. Stacked, the dialog's
+  // navigation scrolls in it too; a section's own navigation doesn't count.
+  const inPort = (section: string, stacked = false) => (
+    <div data-testid="scrollport" style={{ overflowY: "auto" }}>
+      {stacked && <nav aria-label="Settings sections" />}
+      <div>
+        <nav aria-label="Inside a section" />
+      </div>
+      {view(section)}
+    </div>
+  );
+  const { rerender } = render(inPort("example/alpha"));
+  const port = screen.getByTestId("scrollport");
+  let height = 3000;
+  Object.defineProperty(port, "clientHeight", { value: 500 });
+  Object.defineProperty(port, "scrollHeight", { get: () => height });
+  const scrollTo = (top: number) => {
+    port.scrollTop = top;
+    fireEvent.scroll(port);
+  };
+  scrollTo(720);
+  rerender(inPort("example/beta"));
+  expect(port.scrollTop).toBe(0);
+  scrollTo(300);
+  rerender(inPort("example/alpha"));
+  expect(port.scrollTop).toBe(720);
+  rerender(inPort("example/beta"));
+  expect(port.scrollTop).toBe(300);
+
+  // A section shorter when restored clamps; its place waits for the content.
+  height = 800;
+  rerender(inPort("example/alpha"));
+  scrollTo(300);
+  height = 3000;
+  resize();
+  expect(port.scrollTop).toBe(720);
+  rerender(inPort("example/beta"));
+  rerender(inPort("example/alpha"));
+  expect(port.scrollTop).toBe(720);
+
+  // Stacked, the sidebar starts each section where it is (Dialog).
+  rerender(inPort("example/beta", true));
+  expect(port.scrollTop).toBe(720);
+  scrollTo(0);
+  // Widened without a switch, the shown section's place is kept.
+  rerender(inPort("example/beta"));
+  scrollTo(200);
+  rerender(inPort("example/alpha"));
+  expect(port.scrollTop).toBe(720);
+  rerender(inPort("example/beta"));
+  expect(port.scrollTop).toBe(200);
+
+  // A scroll while stacked is the user's, so widening doesn't force a place.
+  rerender(inPort("example/alpha", true));
+  scrollTo(100);
+  rerender(inPort("example/alpha"));
+  port.scrollTop = 0;
+  resize();
+  expect(port.scrollTop).toBe(0);
+});
+
+it("starts a section a link opens at its top, even with a kept place", async () => {
+  const user = userEvent.setup();
+  const { cards } = registry([
+    {
+      ...card("authors", "GitHub comment authors", "Plugins"),
+      key: "buzz.github/authors",
+      pluginId: "buzz.github",
+    },
+  ]);
+  const { view, links } = pluginSectionsFixture(cards);
+  const inPort = (section: string) => (
+    <div data-testid="scrollport" style={{ overflowY: "auto" }}>
+      {view(section)}
+    </div>
+  );
+  const { rerender } = render(inPort("buzz.github/authors"));
+  const port = screen.getByTestId("scrollport");
+  port.scrollTop = 720;
+  fireEvent.scroll(port);
+  rerender(inPort("plugins"));
+  expect(port.scrollTop).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "View GitHub details" }));
+  await user.click(
+    within(links("GitHub") as HTMLElement).getByRole("button", {
+      name: "GitHub comment authors",
+    }),
+  );
+  rerender(inPort("buzz.github/authors"));
+  expect(port.scrollTop).toBe(0);
   expect(document.getElementById("settings-content")).toHaveFocus();
 });
 
