@@ -74,7 +74,8 @@ export function createChannelKit({
 }) {
   let state: Snapshot = { status: host ? "idle" : "unavailable", entries: [] };
   let pending: Promise<void> | undefined;
-  let saving = false;
+  /** One save per record coordinate; saves of other records proceed. */
+  const saving = new Set<string>();
   let epoch = 0;
   const listeners = new Set<() => void>();
   const update = (next: Snapshot) => {
@@ -231,9 +232,9 @@ export function createChannelKit({
       ? AbortSignal.any([signal, operationSignal])
       : signal;
     preparing.throwIfAborted();
-    if (!host || !outbox || saving)
+    if (!host || !outbox || saving.has(d))
       throw new Error("Recipe saving is unavailable or already in progress");
-    saving = true;
+    saving.add(d);
     try {
       await ready;
       const head = async (readSignal = signal) =>
@@ -295,7 +296,7 @@ export function createChannelKit({
         );
       return id;
     } finally {
-      saving = false;
+      saving.delete(d);
     }
   }
   const capability = Object.freeze({
@@ -335,7 +336,9 @@ export function createChannelKit({
         resume,
         operationSignal,
       );
-      await refresh();
+      // Another record's save may have started a catalog read before this
+      // one was confirmed; do not join it.
+      await refresh({ after: true });
       return id;
     },
   });
