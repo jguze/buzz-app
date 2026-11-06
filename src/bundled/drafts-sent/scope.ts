@@ -11,3 +11,8 @@ export function scopeOf(connection: RelaySnapshot) {
 /** Hidden from both the list and the count: Huddle rooms and channels still resolving. */
 export const listed = (channel: ChannelSummary | undefined) =>
   !channel?.huddle && !channel?.metadataPending;
+
+/** Drafts also leave out archived conversations: their composer is gone, so the draft
+ * can't be continued. It stays saved and comes back if the conversation is unarchived. */
+export const draftListed = (channel: ChannelSummary | undefined) =>
+  listed(channel) && !channel?.archived;

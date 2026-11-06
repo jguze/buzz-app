@@ -2,7 +2,7 @@ import type { PluginModule } from "../../plugins/api";
 import { useChannelList, useRelayConnection } from "../../features/relay/react";
 import { DraftsSentPage } from "./DraftsSentPage";
 import { useDrafts } from "./drafts";
-import { listed } from "./scope";
+import { draftListed } from "./scope";
 import styles from "./DraftsSent.module.css";
 
 export const inject = ["pages", "relay", "navigation"];
@@ -10,7 +10,7 @@ export const inject = ["pages", "relay", "navigation"];
 export const apply: PluginModule["apply"] = (ctx) => {
   const relay = ctx.relay;
 
-  /** Sidebar count of unsent drafts in the current community. */
+  /** Sidebar count of unsent drafts in the current community, leaving out archived conversations. */
   function Badge() {
     const connection = useRelayConnection(relay);
     const session =
@@ -19,7 +19,9 @@ export const apply: PluginModule["apply"] = (ctx) => {
     const { channels } = useChannelList(connection.session.channels);
     const count = session
       ? drafts.entries.filter((entry) =>
-          listed(channels.find((channel) => channel.id === entry.channelId)),
+          draftListed(
+            channels.find((channel) => channel.id === entry.channelId),
+          ),
         ).length
       : 0;
     return count ? (

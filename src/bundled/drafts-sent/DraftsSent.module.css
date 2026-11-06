@@ -189,8 +189,22 @@
   background: var(--affordance-accent-prominent);
 }
 
+/* Centered on the lead tile, so it lines up with the conversation name. */
 .time {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-control-sm);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Drafts in archived conversations stay out of the list until asked for. */
+.archivedToggle {
+  align-self: flex-start;
   font-variant-numeric: tabular-nums;
 }
 
@@ -202,6 +216,7 @@
 
 .badge {
   color: var(--text-navigation-unread);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--type-weight-semibold);
 }
 
