@@ -15,46 +15,56 @@ export const continueWithoutSecret = {
 
 type CopyNotice = { text: string; error: boolean };
 
-async function copyWebhookValue(
-  value: string,
-  label: "URL" | "secret",
-): Promise<CopyNotice> {
-  try {
-    await writeClipboardText(value);
-    return {
-      text: `${label === "URL" ? "URL" : "Secret"} copied.`,
-      error: false,
-    };
-  } catch {
-    return {
-      text:
-        label === "secret"
-          ? "Couldn’t copy the secret. Reveal it and copy it manually."
-          : "Couldn’t copy the URL. Select it and copy it manually.",
-      error: true,
-    };
-  }
+/** Copies a webhook value; the result belongs in that surface's one {@link CopyStatus}. */
+function useWebhookCopy() {
+  const [notice, setNotice] = useState<CopyNotice>();
+  const copy = async (value: string, label: "URL" | "secret") => {
+    // A live region announces changes, so clear it first: repeating a copy
+    // repeats the announcement.
+    setNotice(undefined);
+    try {
+      await writeClipboardText(value);
+      setNotice({
+        text: `${label === "URL" ? "URL" : "Secret"} copied.`,
+        error: false,
+      });
+      return true;
+    } catch {
+      setNotice({
+        text:
+          label === "secret"
+            ? "Couldn’t copy the secret. Reveal it and copy it manually."
+            : "Couldn’t copy the URL. Select it and copy it manually.",
+        error: true,
+      });
+      return false;
+    }
+  };
+  return [notice, copy] as const;
 }
 
+/** Always mounted, so assistive technology is watching before its text changes. */
 function CopyStatus({ notice }: { notice: CopyNotice | undefined }) {
-  return notice ? (
+  return (
     <p
       role="status"
-      className={`text-body-sm ${notice.error ? "text-danger" : "text-secondary"}`}
+      className={`workflow-copy-status text-body-sm ${notice?.error ? "text-danger" : "text-secondary"}`}
     >
-      {notice.text}
+      {notice?.text}
     </p>
-  ) : null;
+  );
 }
 
 /** The relay route senders post to; `hookUrl` is undefined when the host advertised no relay HTTP base. */
 function WebhookUrl({
   workflowId,
   hookUrl,
+  testId,
   onCopy,
 }: {
   workflowId: string;
   hookUrl: string | undefined;
+  testId: string;
   onCopy: (url: string) => void;
 }) {
   return (
@@ -64,7 +74,7 @@ function WebhookUrl({
         <div className="workflow-secret-row">
           <code
             className="workflow-secret-value text-mono-sm"
-            data-testid="webhook-url"
+            data-testid={testId}
           >
             {hookUrl}
           </code>
@@ -83,35 +93,49 @@ function WebhookUrl({
 }
 
 /**
- * A saved webhook trigger's address, for Trigger settings. The relay returns
- * the secret only in the save receipt that first gives the workflow a webhook
- * trigger, so this never reads or shows it.
+ * A saved webhook trigger's address, outside Webhook ready. The relay returns
+ * the secret only in the save receipt that issues it, so this never reads or
+ * shows it.
  */
 export function WorkflowWebhookAddress({
   workflowId,
   hookUrl,
+  readOnly,
 }: {
   workflowId: string;
   hookUrl: string | undefined;
+  /** Only the author can save, so only the author can replace the secret. */
+  readOnly: boolean;
 }) {
-  const [notice, setNotice] = useState<CopyNotice>();
+  const [notice, copy] = useWebhookCopy();
   return (
-    <div className="workflow-secret">
+    <div className="workflow-secret workflow-webhook-address">
       <WebhookUrl
         workflowId={workflowId}
         hookUrl={hookUrl}
-        onCopy={(url) => void copyWebhookValue(url, "URL").then(setNotice)}
+        testId="webhook-address-url"
+        onCopy={(url) => void copy(url, "URL")}
       />
       <CopyStatus notice={notice} />
-      <p className="text-body-sm text-subtle">
-        Senders include the X-Webhook-Secret header. Buzz showed its secret
-        once, when this trigger was first saved, and can’t show it again.
-      </p>
-      <p className="text-body-sm text-subtle">
-        Lost it? Turn the workflow off, choose another trigger and save. The old
-        secret stops working. Then choose Webhook again, turn the workflow on
-        and save to get a new secret.
-      </p>
+      {readOnly ? (
+        <p className="text-body-sm text-subtle">
+          Senders include the X-Webhook-Secret header. Only the workflow’s
+          author has the secret and can replace it.
+        </p>
+      ) : (
+        <>
+          <p className="text-body-sm text-subtle">
+            Senders include the X-Webhook-Secret header. Buzz shows the secret
+            only once, when it’s issued, and can’t show it again.
+          </p>
+          <p className="text-body-sm text-subtle">
+            Lost it? Turn off Enabled in configuration (in Workflow settings or
+            on the YAML tab), change the trigger and save. The old secret stops
+            working. Then change the trigger back to Webhook, turn Enabled in
+            configuration on and save to get a new secret.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -135,7 +159,7 @@ export function WorkflowWebhookSecretDialog({
   const [revealed, setRevealed] = useState(false);
   const [handled, setHandled] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [notice, setNotice] = useState<CopyNotice>();
+  const [notice, copy] = useWebhookCopy();
   const taken = useRef(false);
   useEffect(() => {
     // StrictMode re-runs mount effects on the same instance; the ref keeps the
@@ -145,10 +169,8 @@ export function WorkflowWebhookSecretDialog({
     const value = take();
     if (value !== undefined) setSecret(value);
   }, [take]);
-  const copy = async (value: string, label: "URL" | "secret") => {
-    const result = await copyWebhookValue(value, label);
-    setNotice(result);
-    if (label === "secret" && !result.error) setHandled(true);
+  const copySecret = async (value: string) => {
+    if (await copy(value, "secret")) setHandled(true);
   };
   const leave = () => {
     if (secret === undefined || handled) onContinue();
@@ -174,6 +196,7 @@ export function WorkflowWebhookSecretDialog({
           <WebhookUrl
             workflowId={workflowId}
             hookUrl={hookUrl}
+            testId="webhook-url"
             onCopy={(url) => void copy(url, "URL")}
           />
           <p id={`${id}-secret`} className="text-label-sm">
@@ -206,9 +229,7 @@ export function WorkflowWebhookSecretDialog({
             <Button
               size="compact"
               disabled={secret === undefined}
-              onClick={() =>
-                secret !== undefined && void copy(secret, "secret")
-              }
+              onClick={() => secret !== undefined && void copySecret(secret)}
             >
               Copy secret
             </Button>

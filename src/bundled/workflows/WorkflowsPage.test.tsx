@@ -509,6 +509,53 @@ it("keeps the editor mounted through exact readback beneath the one-time secret"
   );
 });
 
+it("shows the saved URL after Webhook ready closes, with the secret nowhere on the page", async () => {
+  const secret = "DISPOSABLE-ADDRESS-SECRET";
+  const hookUrl = `https://relay.example.test/hooks/${fixtureDefinition.id}`;
+  const fixture = mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /^Open Message helper:/ }),
+  );
+  fireEvent.click(detailPane().getByRole("button", { name: "Edit workflow" }));
+  fireEvent.click(screen.getByRole("tab", { name: "YAML" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Workflow YAML" }), {
+    target: { value: fixtureYaml.replace("message_posted", "webhook") },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await act(async () => {
+    fixture.finish("succeeded", true, secret);
+  });
+  const ready = screen.getByRole("dialog", { name: "Webhook ready" });
+  // The YAML tab beneath already shows the address under its own test id.
+  expect(screen.getAllByTestId("webhook-url")).toEqual([
+    within(ready).getByTestId("webhook-url"),
+  ]);
+  expect(screen.getByTestId("webhook-address-url")).toHaveTextContent(hookUrl);
+  fireEvent.click(
+    within(ready).getByRole("button", { name: "Reveal webhook secret" }),
+  );
+  expect(within(ready).getByTestId("webhook-secret")).toHaveTextContent(secret);
+  fireEvent.click(within(ready).getByRole("button", { name: "Continue" }));
+  expect(screen.queryByRole("dialog", { name: "Webhook ready" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Form" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+  );
+  const settings = screen.getByRole("complementary", {
+    name: "Trigger settings",
+  });
+  expect(within(settings).getByTestId("webhook-address-url")).toHaveTextContent(
+    hookUrl,
+  );
+  expect(
+    within(settings).getByRole("button", { name: "Copy URL" }),
+  ).toBeEnabled();
+  expect(document.body.textContent).not.toContain(secret);
+  expect(screen.queryByTestId("webhook-secret")).toBeNull();
+  expect(fixture.calls.take).toBe(1);
+});
+
 it.each(["discard", "remove"])(
   "guards canonical YAML's incomplete local condition until %s",
   async (finish) => {

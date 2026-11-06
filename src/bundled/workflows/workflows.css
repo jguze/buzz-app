@@ -278,6 +278,15 @@
   border-radius: var(--radius-control);
   background: var(--surface-inset);
 }
+/* Outside Webhook ready the URL wraps, so it can be read as well as copied. */
+.workflow-webhook-address .workflow-secret-value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Copy status stays mounted for assistive technology; empty, it takes no row or gap. */
+.workflow-copy-status:empty {
+  position: absolute;
+}
 .workflow-schedule {
   display: grid;
   gap: var(--space-4);

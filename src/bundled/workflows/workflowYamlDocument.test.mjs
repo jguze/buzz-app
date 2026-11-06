@@ -3,6 +3,7 @@ import { test } from "vitest";
 
 import {
   readWorkflowDocumentFields,
+  readWorkflowTriggerOn,
   yamlWithWorkflowEnabled,
   yamlWithWorkflowName,
 } from "./workflowYamlDocument.ts";
@@ -107,4 +108,22 @@ test("header edits preserve advanced YAML and comments without form ownership", 
     assert.match(source, /future: untouched/);
     assert.match(source, /on: schedule/);
   }
+});
+
+test("reads the trigger type of a definition Form mode cannot show", () => {
+  assert.equal(
+    readWorkflowTriggerOn(
+      "name: Hook\ntrigger:\n  on: webhook\nsteps:\n  - id: react\n    action: add_reaction\n",
+    ),
+    "webhook",
+  );
+  assert.equal(readWorkflowTriggerOn(INCOMPLETE_STEP_YAML), "message_posted");
+  for (const yaml of [
+    "",
+    "- webhook",
+    "trigger: [",
+    "trigger: webhook",
+    "trigger:\n  on: 4",
+  ])
+    assert.equal(readWorkflowTriggerOn(yaml), null, yaml);
 });

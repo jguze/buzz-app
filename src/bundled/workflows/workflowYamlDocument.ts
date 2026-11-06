@@ -56,6 +56,14 @@ export function readWorkflowDocumentFields(
   };
 }
 
+/** The definition's `trigger.on`, read without requiring the whole definition to be valid. */
+export function readWorkflowTriggerOn(yaml: string): string | null {
+  const document = parseDocument(yaml);
+  if (document.errors.length > 0) return null;
+  const on = document.getIn(["trigger", "on"]);
+  return typeof on === "string" ? on : null;
+}
+
 /** Writes `name` into the definition, preserving unrelated YAML nodes (not byte-exact formatting). */
 export function yamlWithWorkflowName(
   yaml: string,
