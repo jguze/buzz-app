@@ -1215,15 +1215,16 @@ test("each Settings section keeps its own scroll place while Settings is open", 
   await openSettings(page);
   await selectSettingsSection(page, "Shortcuts");
   const port = settingsDialog(page).locator(".buzz-dialog-navigation-detail");
-  const offset = () => port.evaluate((element) => element.scrollTop);
+  const offset = (scroller) =>
+    scroller.evaluate((element) => element.scrollTop);
   // WebKit animates wheel scrolling: wait until two reads agree.
-  const settled = async () => {
+  const settled = async (scroller = port) => {
     let last;
     await expect
       .poll(
         async () => {
           const previous = last;
-          last = await offset();
+          last = await offset(scroller);
           return last === previous;
         },
         { intervals: [200] },
@@ -1231,9 +1232,9 @@ test("each Settings section keeps its own scroll place while Settings is open", 
       .toBe(true);
     return last;
   };
-  const near = (place) =>
+  const near = (place, scroller = port) =>
     expect
-      .poll(async () => Math.abs((await offset()) - place))
+      .poll(async () => Math.abs((await offset(scroller)) - place))
       .toBeLessThanOrEqual(1);
   // Wheel over the port's own padding, so no nested scroller takes it.
   const box = await port.boundingBox();
@@ -1255,6 +1256,18 @@ test("each Settings section keeps its own scroll place while Settings is open", 
     page.getByRole("region", { name: "Appearance", exact: true }),
   ).toBeVisible();
   await near(appearance);
+  // Side by side, the plugin catalog scrolls in the detail, not the port.
+  await selectSettingsSection(page, "Manage plugins");
+  const catalog = settingsDialog(page).locator(".buzz-settings-page");
+  await catalog.evaluate((element) => {
+    element.scrollTop = 240;
+  });
+  const plugins = await settled(catalog);
+  expect(plugins).toBeGreaterThan(0);
+  await selectSettingsSection(page, "Appearance");
+  await near(appearance);
+  await selectSettingsSection(page, "Manage plugins");
+  await near(plugins, catalog);
   await closeSettings(page);
   await openSettings(page);
   await selectSettingsSection(page, "Shortcuts");

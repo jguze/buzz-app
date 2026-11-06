@@ -1459,8 +1459,8 @@ it("links a plugin's details to the Settings sections it adds", async () => {
   expect(document.getElementById("settings-content")).toHaveFocus();
 });
 
-/** Drives the ResizeObservers watching the Settings detail, for this test. */
-function resizeDetail() {
+/** Drives the ResizeObservers watching `watched` (the detail), for this test. */
+function resizeDetail(watched = ".buzz-settings-page") {
   const Stub = globalThis.ResizeObserver;
   const watching = new Set<() => void>();
   vi.stubGlobal(
@@ -1472,8 +1472,7 @@ function resizeDetail() {
         this.run = () => callback([], this);
       }
       observe(target: Element) {
-        if (target.classList.contains("buzz-settings-page"))
-          watching.add(this.run);
+        if (target.matches(watched)) watching.add(this.run);
       }
       disconnect() {
         watching.delete(this.run);
@@ -1553,6 +1552,56 @@ it("keeps each section's scroll place, and opens one it hasn't shown at its star
   expect(port.scrollTop).toBe(0);
 });
 
+it("keeps the plugin catalog's place in the detail it scrolls in, side by side", () => {
+  // The held detail keeps its size; the catalog grows inside it.
+  const resize = resizeDetail('[aria-labelledby="plugin-settings-title"]');
+  const { cards } = registry([card("alpha", "Alpha")]);
+  const { view } = pluginSectionsFixture(cards);
+  const inPort = (section: string, stacked = false) => (
+    <div data-testid="scrollport" style={{ overflowY: "auto" }}>
+      {stacked && <nav aria-label="Settings sections" />}
+      {view(section)}
+    </div>
+  );
+  const { rerender } = render(inPort("plugins"));
+  const port = screen.getByTestId("scrollport");
+  const detail = port.querySelector(".buzz-settings-page") as HTMLElement;
+  let height = 3000;
+  Object.defineProperty(detail, "clientHeight", { value: 500 });
+  Object.defineProperty(detail, "scrollHeight", { get: () => height });
+  const scrollTo = (element: HTMLElement, top: number) => {
+    element.scrollTop = top;
+    fireEvent.scroll(element);
+  };
+  scrollTo(detail, 640);
+  rerender(inPort("example/alpha"));
+  // Elsewhere the detail doesn't scroll, so the browser drops its offset.
+  detail.scrollTop = 0;
+  scrollTo(port, 300);
+  rerender(inPort("plugins"));
+  expect(detail.scrollTop).toBe(640);
+  // The held pane leaves the port nothing to scroll; its clamp isn't a place.
+  scrollTo(port, 0);
+  rerender(inPort("example/alpha"));
+  expect(port.scrollTop).toBe(300);
+
+  // A catalog shorter when restored clamps; its place waits for the content.
+  detail.scrollTop = 0;
+  height = 800;
+  rerender(inPort("plugins"));
+  scrollTo(detail, 300);
+  scrollTo(port, 0);
+  height = 3000;
+  resize();
+  expect(detail.scrollTop).toBe(640);
+
+  // Stacked, the catalog scrolls in the port, where the sidebar starts it.
+  rerender(inPort("example/alpha", true));
+  detail.scrollTop = 0;
+  rerender(inPort("plugins", true));
+  expect(detail.scrollTop).toBe(0);
+});
+
 it("starts a section a link opens at its top, even with a kept place", async () => {
   const user = userEvent.setup();
   const { cards } = registry([
@@ -1573,7 +1622,8 @@ it("starts a section a link opens at its top, even with a kept place", async () 
   port.scrollTop = 720;
   fireEvent.scroll(port);
   rerender(inPort("plugins"));
-  expect(port.scrollTop).toBe(0);
+  // Beside the catalog, the held pane leaves the port nothing to scroll.
+  port.scrollTop = 0;
   fireEvent.click(screen.getByRole("button", { name: "View GitHub details" }));
   await user.click(
     within(links("GitHub") as HTMLElement).getByRole("button", {

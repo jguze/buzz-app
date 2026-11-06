@@ -758,10 +758,10 @@ export function Settings({
   // first visit rather than with every Settings open, then kept like the rest.
   const [shortcutsVisited, setShortcutsVisited] = useState(false);
   if (selected === "shortcuts" && !shortcutsVisited) setShortcutsVisited(true);
-  // Every section scrolls in one scrollport, so each would open at the last
-  // one's offset. Side by side, keep each section's place while Settings is
-  // open, and start one not yet shown at its start. Stacked navigation scrolls
-  // with the content, and the sidebar starts sections there (Dialog).
+  // Sections share one scrollport, so each would open at the last one's
+  // offset. Side by side, keep each section's place while Settings is open, and
+  // start one not yet shown at its start. Stacked navigation scrolls with the
+  // content, and the sidebar starts sections there (Dialog).
   const detailElement = useRef<HTMLDivElement>(null);
   const sectionPlaces = useRef(new Map<string, number>());
   const placedSection = useRef(selected);
@@ -773,6 +773,9 @@ export function Settings({
     if (!navigationPane || !content) return;
     // The layout can change at any time; stacked, the port leads with the nav.
     const stacked = (port: Element) => !!port.querySelector(":scope > nav");
+    // Side by side, the plugin catalog scrolls in the detail instead, which the
+    // pane holds to the port's height (Settings.module.css).
+    const detailScrolls = selected === "plugins";
     // A restore waits for content that renders late, until the user scrolls.
     // A link starts its section at the top (contentFocus, below).
     const shown = placedSection.current;
@@ -783,25 +786,30 @@ export function Settings({
         : sectionPlaces.current.get(selected);
     const restore = () => {
       const port = scrollport(content);
-      if (port && !stacked(port)) port.scrollTop = pending ?? 0;
+      if (port && !stacked(port))
+        (detailScrolls ? content : port).scrollTop = pending ?? 0;
     };
     if (shown !== selected) restore();
     const keep = ({ target }: Event) => {
       if (!(target instanceof Node) || !target.contains(content)) return;
       const port = scrollport(content);
-      if (!port || target !== port) return;
+      if (!port) return;
       const side = !stacked(port);
+      const at = side && detailScrolls ? content : port;
+      if (target !== at) return;
       // A clamped restore rests at the bottom edge, where the only way out is
       // up, so the user's first scroll there clears it.
-      const clamped =
-        port.scrollTop >= port.scrollHeight - port.clientHeight - 1;
-      if (side && pending !== undefined && port.scrollTop < pending && clamped)
+      const clamped = at.scrollTop >= at.scrollHeight - at.clientHeight - 1;
+      if (side && pending !== undefined && at.scrollTop < pending && clamped)
         return;
       pending = undefined;
-      if (side) sectionPlaces.current.set(selected, port.scrollTop);
+      if (side) sectionPlaces.current.set(selected, at.scrollTop);
     };
     const grown = new ResizeObserver(() => pending !== undefined && restore());
     grown.observe(content);
+    // The held detail keeps its size while the catalog grows inside it.
+    if (detailScrolls && pluginSection.current)
+      grown.observe(pluginSection.current);
     document.addEventListener("scroll", keep, { capture: true, passive: true });
     return () => {
       grown.disconnect();
