@@ -68,6 +68,7 @@ export function WorkflowForm({
   selection,
   onSelect,
   overview,
+  webhook,
 }: {
   state: WorkflowFormState;
   onChange: (next: WorkflowFormState) => void;
@@ -76,6 +77,8 @@ export function WorkflowForm({
   selection: WorkflowSelection;
   onSelect: (selection: WorkflowSelection) => void;
   overview?: ReactNode;
+  /** A saved webhook trigger's address; replaces the before-save hint. */
+  webhook?: ReactNode;
 }) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
@@ -325,10 +328,12 @@ export function WorkflowForm({
                 onUpdate={(trigger) => onChange({ ...state, trigger })}
               />
             ) : state.trigger.on === "webhook" ? (
-              <p className="text-body-sm text-subtle">
-                A unique URL is generated after creation. Its address and
-                one-time secret are shown once, after the first save.
-              </p>
+              !webhook && (
+                <p className="text-body-sm text-subtle">
+                  Save to get this webhook’s URL and secret. The secret is shown
+                  only once.
+                </p>
+              )
             ) : (
               <WorkflowConditions
                 key={state.trigger.on}
@@ -345,6 +350,8 @@ export function WorkflowForm({
           </>
         )}
       </fieldset>
+      {/* Read-only values stay readable and copyable while the form is disabled. */}
+      {!selectedStep && state.trigger.on === "webhook" && webhook}
     </>
   );
   return (

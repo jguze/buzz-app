@@ -835,3 +835,14 @@ Confirm the deletion; pending or uncertain results remain in the workflow notice
 If permission changes during confirmation, Buzz explains why deletion could not
 start and keeps any editor draft.
 Owning the agent does not grant permission to edit or run its workflow.
+
+## Webhook workflows
+
+When you save a workflow with the **Webhook** trigger for the first time,
+**Webhook ready** shows its URL and secret once. Senders post to the URL with
+the secret in the `X-Webhook-Secret` header. To find the URL later, open the
+workflow and choose **Edit trigger: Webhook**; **Copy URL** works for anyone in
+the channel. Buzz can’t show the secret again. If it’s lost, the workflow’s
+author turns the workflow off, chooses another trigger and saves, which stops
+the old secret working. Then they choose **Webhook** again, turn the workflow
+on and save, and **Webhook ready** shows a new secret.

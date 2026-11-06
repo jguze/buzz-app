@@ -101,7 +101,14 @@ See the [capability contract](../src/features/workflows/types.ts).
   any displayed value. The secret is held in memory until that dialog takes
   it and never enters the outbox journal, operation errors or logs. The hook
   URL needs the relay HTTP base the host advertises; without it the dialog
-  shows the relative `/hooks/{id}` route only.
+  shows the relative `/hooks/{id}` route only. Afterwards the trigger inspector
+  of a workflow whose saved trigger is Webhook shows the same address with
+  Copy URL, outside the disabled fieldset, so read-only channel members and a
+  pending save can still copy it. It never shows the secret. The relay keeps
+  the secret across saves that keep the Webhook trigger and drops it on a save
+  with any other trigger, so a lost secret is replaced in two saves: off with
+  another trigger (the old secret now gets 404), then Webhook again, which
+  issues a new one.
 - Destructive deletion confirmation, unconfirmed manual run of the saved
   configuration (the editor's Run now is unavailable while the draft has
   unsaved changes), and on-demand run/trace history in

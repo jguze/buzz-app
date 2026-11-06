@@ -1701,7 +1701,7 @@ test("a webhook save shows its one-time secret once and asks before leaving it b
   await page.getByRole("combobox", { name: "Trigger", exact: true }).click();
   await page.getByRole("option", { name: "Webhook", exact: true }).click();
   await expect(
-    page.getByText(/A unique URL is generated after creation/),
+    page.getByText(/Save to get this webhook’s URL and secret/),
   ).toBeVisible();
   await expect(page.getByText("Trigger options", { exact: true })).toHaveCount(
     0,

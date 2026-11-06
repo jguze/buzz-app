@@ -22,6 +22,8 @@ import { ConfirmAction } from "./ConfirmAction";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { messages, WorkflowOperations } from "./WorkflowOperations";
 import { WorkflowRuns } from "./WorkflowRuns";
+import { WorkflowWebhookAddress } from "./WorkflowWebhookSecretDialog";
+import { workflowCardPresentation } from "./workflowCardPresentation";
 import { saveAwaitsReadback } from "./WorkflowLanding";
 import { exactSaveReadback } from "./editor-model";
 import { DEFAULT_FORM_STATE, formStateToYaml } from "./workflowFormTypes";
@@ -414,6 +416,18 @@ export function WorkflowChannel({
                     </MenuNote>
                   )}
                 </>
+              )
+            }
+            webhook={
+              // The relay keeps a webhook's secret across saves that keep the
+              // trigger, so the saved trigger, not the draft's, owns the address.
+              draft.original &&
+              workflowCardPresentation(draft.original.yaml).triggerIcon ===
+                "webhook" && (
+                <WorkflowWebhookAddress
+                  workflowId={draft.original.id}
+                  hookUrl={capability.webhookUrl(draft.original.id)}
+                />
               )
             }
             runs={

@@ -305,3 +305,167 @@ it("drops a run status when another configuration replaces the draft", async () 
   await user.click(screen.getByRole("button", { name: "Leave draft" }));
   expect(screen.queryByText(runStatus)).not.toBeInTheDocument();
 });
+
+const webhookDefinition = {
+  ...fixtureDefinition,
+  yaml: fixtureDefinition.yaml.replace("on: message_posted", "on: webhook"),
+};
+const webhookUrl = `https://relay.example.test/hooks/${fixtureDefinition.id}`;
+const beforeSaveHint =
+  "Save to get this webhook’s URL and secret. The secret is shown only once.";
+const triggerSettings = () =>
+  screen.getByRole("complementary", { name: "Trigger settings" });
+function mountChannel(
+  initialSelection: Parameters<typeof WorkflowChannel>[0]["initialSelection"],
+  fixture = createWorkflowFixture(),
+  capability = fixture.capability,
+) {
+  render(
+    <WorkflowChannel
+      capability={capability}
+      channelId={fixtureChannel}
+      channel={{ name: "Fixture channel" }}
+      viewer={fixtureViewer}
+      initialSelection={initialSelection}
+      onClose={() => {}}
+      onDelete={() => {}}
+    />,
+  );
+  // user-event installs its own clipboard stub; observe that one.
+  const user = userEvent.setup();
+  return { fixture, user, copied: vi.spyOn(navigator.clipboard, "writeText") };
+}
+
+it.each([
+  ["its author", fixtureViewer],
+  ["another channel member", "22".repeat(32)],
+])(
+  "shows a saved webhook's URL with Copy to %s, and says the secret was shown once",
+  async (_viewer, owner) => {
+    const { fixture, user, copied } = mountChannel({
+      ...webhookDefinition,
+      owner,
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+    );
+    const aside = triggerSettings();
+    expect(within(aside).getByText("Webhook URL")).toBeVisible();
+    expect(within(aside).getByText(webhookUrl)).toBeVisible();
+    expect(
+      within(aside).getByText(/Buzz showed its secret once/),
+    ).toBeVisible();
+    expect(within(aside).getByText(/^Lost it\?/)).toBeVisible();
+    expect(within(aside).queryByText(beforeSaveHint)).toBeNull();
+    // The address is outside the form's disabled fieldset, so Tab reaches Copy
+    // URL for read-only viewers too, and Enter copies.
+    const copy = within(aside).getByRole("button", { name: "Copy URL" });
+    expect(copy).toBeEnabled();
+    within(aside).getByRole("button", { name: "Close inspector" }).focus();
+    await user.tab();
+    expect(copy).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(copied).toHaveBeenCalledExactlyOnceWith(webhookUrl);
+    expect(await within(aside).findByRole("status")).toHaveTextContent(
+      "URL copied.",
+    );
+    expect(fixture.calls.take).toBe(0);
+  },
+);
+
+it("reports a failed URL copy with how to recover", async () => {
+  const { user, copied } = mountChannel(webhookDefinition);
+  copied.mockRejectedValue(new Error("Denied"));
+  await user.click(
+    screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+  );
+  await user.click(
+    within(triggerSettings()).getByRole("button", { name: "Copy URL" }),
+  );
+  expect(
+    await within(triggerSettings()).findByRole("status"),
+  ).toHaveTextContent("Couldn’t copy the URL. Select it and copy it manually.");
+});
+
+it("shows the relative hook route when the host has no relay HTTP base", async () => {
+  const fixture = createWorkflowFixture();
+  const { user } = mountChannel(webhookDefinition, fixture, {
+    ...fixture.capability,
+    webhookUrl: () => undefined,
+  });
+  await user.click(
+    screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+  );
+  const aside = triggerSettings();
+  expect(within(aside).getByText("Webhook URL")).toBeVisible();
+  expect(
+    within(aside).getByText(`/hooks/${fixtureDefinition.id}`),
+  ).toBeVisible();
+  expect(within(aside).queryByRole("button", { name: "Copy URL" })).toBeNull();
+  expect(within(aside).queryByText(beforeSaveHint)).toBeNull();
+});
+
+it.each([
+  ["an unsaved workflow", "new" as const],
+  ["a workflow saved with another trigger", fixtureDefinition],
+])(
+  "keeps the before-save hint, and no URL, for a webhook chosen on %s",
+  async (_case, initialSelection) => {
+    const { user } = mountChannel(initialSelection);
+    if (initialSelection !== "new")
+      await user.click(
+        screen.getByRole("button", { name: "Edit trigger: Message posted" }),
+      );
+    await user.click(screen.getByRole("combobox", { name: "Trigger" }));
+    await user.click(await screen.findByRole("option", { name: "Webhook" }));
+    const aside = triggerSettings();
+    expect(within(aside).getByText(beforeSaveHint)).toBeVisible();
+    expect(within(aside).queryByText("Webhook URL")).toBeNull();
+    expect(within(aside).queryByText(/\/hooks\//)).toBeNull();
+    expect(
+      within(aside).queryByRole("button", { name: "Copy URL" }),
+    ).toBeNull();
+  },
+);
+
+it("shows the URL once a save gives the workflow a webhook trigger, never the secret, and keeps Copy URL enabled during a later save", async () => {
+  const secret = "fixture-webhook-secret-2f6c";
+  const { fixture, user, copied } = mountChannel(fixtureDefinition);
+  await user.click(
+    screen.getByRole("button", { name: "Edit trigger: Message posted" }),
+  );
+  await user.click(screen.getByRole("combobox", { name: "Trigger" }));
+  await user.click(await screen.findByRole("option", { name: "Webhook" }));
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  // Until the readback, the saved definition still has the old trigger.
+  expect(within(triggerSettings()).getByText(beforeSaveHint)).toBeVisible();
+  act(() => fixture.finish("succeeded", true, secret));
+  const aside = triggerSettings();
+  expect(await within(aside).findByText(webhookUrl)).toBeVisible();
+  expect(within(aside).queryByText(beforeSaveHint)).toBeNull();
+  expect(document.body).not.toHaveTextContent(secret);
+  expect(fixture.calls.take).toBe(0);
+
+  await user.click(screen.getByRole("tab", { name: "YAML" }));
+  await user.type(
+    screen.getByRole("textbox", { name: "Workflow YAML" }),
+    "\n# Unsaved edit",
+  );
+  await user.click(screen.getByRole("tab", { name: "Form" }));
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await user.click(
+    screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+  );
+  // The pending save disables the form, not reading or copying its address.
+  expect(
+    within(triggerSettings()).getByRole("combobox", { name: "Trigger" }),
+  ).toBeDisabled();
+  const copy = within(triggerSettings()).getByRole("button", {
+    name: "Copy URL",
+  });
+  expect(copy).toBeEnabled();
+  await user.click(copy);
+  expect(copied).toHaveBeenCalledExactlyOnceWith(webhookUrl);
+  expect(document.body).not.toHaveTextContent(secret);
+  expect(fixture.calls.take).toBe(0);
+});
