@@ -844,8 +844,8 @@ the secret in the `X-Webhook-Secret` header. To find the URL later, open the
 workflow and select the **Webhook** trigger. If the workflow opens on the YAML
 tab because the form can’t show it, the URL is below the YAML. Anyone in the
 channel can copy it. Buzz can’t show the secret again. If it’s lost, the
-workflow’s author turns off **Enabled in configuration** (in Workflow settings,
-or below the YAML on the YAML tab), changes the trigger and saves, which stops
-the old secret working. Then they change the trigger back to **Webhook**, turn
-**Enabled in configuration** on and save, and **Webhook ready** shows a new
-secret.
+workflow’s author closes the trigger’s settings, turns off **Enabled in
+configuration**, changes the trigger and saves, which stops the old secret
+working. On the YAML tab, the switch is above the URL. Then they change the
+trigger back to **Webhook**, turn **Enabled in configuration** on and save, and
+**Webhook ready** shows a new secret.

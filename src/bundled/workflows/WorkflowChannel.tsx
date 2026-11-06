@@ -23,7 +23,10 @@ import { ConfirmAction } from "./ConfirmAction";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { messages, WorkflowOperations } from "./WorkflowOperations";
 import { WorkflowRuns } from "./WorkflowRuns";
-import { WorkflowWebhookAddress } from "./WorkflowWebhookSecretDialog";
+import {
+  type WebhookAddressSurface,
+  WorkflowWebhookAddress,
+} from "./WorkflowWebhookSecretDialog";
 import { readWorkflowTriggerOn } from "./workflowYamlDocument";
 import { saveAwaitsReadback } from "./WorkflowLanding";
 import { exactSaveReadback } from "./editor-model";
@@ -124,6 +127,17 @@ export function WorkflowChannel({
       savedYaml !== undefined && readWorkflowTriggerOn(savedYaml) === "webhook",
     [savedYaml],
   );
+  const savedHook = savedWebhook ? draft?.original : undefined;
+  const webhookAddress =
+    savedHook &&
+    ((surface: WebhookAddressSurface) => (
+      <WorkflowWebhookAddress
+        workflowId={savedHook.id}
+        hookUrl={capability.webhookUrl(savedHook.id)}
+        readOnly={readonly}
+        surface={surface}
+      />
+    ));
   const canDelete = useWorkflowCanDelete(capability, draft?.original);
   const dirty = !!draft && (draft.yaml !== draft.initial || localDraftAtRisk);
   const atRisk = dirty || !!draft?.operationId;
@@ -427,16 +441,7 @@ export function WorkflowChannel({
                 </>
               )
             }
-            webhook={
-              savedWebhook &&
-              draft.original && (
-                <WorkflowWebhookAddress
-                  workflowId={draft.original.id}
-                  hookUrl={capability.webhookUrl(draft.original.id)}
-                  readOnly={readonly}
-                />
-              )
-            }
+            webhook={webhookAddress}
             runs={
               draft.original &&
               capability.availability.history && (

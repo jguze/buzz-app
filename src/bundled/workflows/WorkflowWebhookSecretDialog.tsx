@@ -92,6 +92,9 @@ function WebhookUrl({
   );
 }
 
+/** Where a saved webhook's address appears, which decides how to point at the Enabled switch. */
+export type WebhookAddressSurface = "trigger-settings" | "yaml";
+
 /**
  * A saved webhook trigger's address, outside Webhook ready. The relay returns
  * the secret only in the save receipt that issues it, so this never reads or
@@ -101,11 +104,17 @@ export function WorkflowWebhookAddress({
   workflowId,
   hookUrl,
   readOnly,
+  surface,
 }: {
   workflowId: string;
   hookUrl: string | undefined;
   /** Only the author can save, so only the author can replace the secret. */
   readOnly: boolean;
+  /**
+   * Trigger settings hides the panel with the Enabled switch until it closes;
+   * on the YAML tab the switch is directly above.
+   */
+  surface: WebhookAddressSurface;
 }) {
   const [notice, copy] = useWebhookCopy();
   return (
@@ -129,10 +138,12 @@ export function WorkflowWebhookAddress({
             only once, when it’s issued, and can’t show it again.
           </p>
           <p className="text-body-sm text-subtle">
-            Lost it? Turn off Enabled in configuration (in Workflow settings or
-            on the YAML tab), change the trigger and save. The old secret stops
-            working. Then change the trigger back to Webhook, turn Enabled in
-            configuration on and save to get a new secret.
+            {surface === "yaml"
+              ? "Lost it? Turn off Enabled in configuration above, change the trigger and save."
+              : "Lost it? Close these settings, turn off Enabled in configuration, change the trigger and save."}{" "}
+            The old secret stops working. Then change the trigger back to
+            Webhook, turn Enabled in configuration on and save to get a new
+            secret.
           </p>
         </>
       )}

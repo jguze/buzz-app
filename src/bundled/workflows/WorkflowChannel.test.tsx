@@ -376,8 +376,18 @@ it.each([
     } else {
       expect(within(aside).queryByText(readOnlySecretLine)).toBeNull();
       expect(shownOnce).toBeVisible();
-      expect(lostIt).toHaveTextContent(/Turn off Enabled in configuration/);
+      // "Workflow settings" is only an accessible name, so the steps describe
+      // the switch by what the author can see from here.
+      expect(lostIt).toHaveTextContent(
+        /^Lost it\? Close these settings, turn off Enabled in configuration, change the trigger and save\. /,
+      );
+      expect(
+        within(aside).queryByRole("switch", {
+          name: "Enabled in configuration",
+        }),
+      ).toBeNull();
     }
+    expect(screen.queryByText(/Workflow settings/)).toBeNull();
     // One status line is mounted before anything is copied, so assistive
     // technology is already watching it.
     const status = within(aside).getByRole("status");
@@ -394,8 +404,42 @@ it.each([
     await waitFor(() => expect(status).toHaveTextContent("URL copied."));
     expect(within(aside).getAllByRole("status")).toEqual([status]);
     expect(fixture.calls.take).toBe(0);
+    if (!readOnly) {
+      // Closing these settings shows the switch the steps name.
+      await user.click(
+        within(aside).getByRole("button", { name: "Close inspector" }),
+      );
+      expect(
+        screen.getByRole("switch", { name: "Enabled in configuration" }),
+      ).toBeEnabled();
+    }
   },
 );
+
+it("clears the copy status while a repeated copy is pending, so it's announced again", async () => {
+  const { user, copied } = mountChannel(webhookDefinition);
+  await user.click(
+    screen.getByRole("button", { name: "Edit trigger: Webhook" }),
+  );
+  const aside = triggerSettings();
+  const status = within(aside).getByRole("status");
+  const copy = within(aside).getByRole("button", { name: "Copy URL" });
+  await user.click(copy);
+  await waitFor(() => expect(status).toHaveTextContent("URL copied."));
+  let finish = () => {};
+  copied.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await user.click(copy);
+  expect(copied).toHaveBeenCalledTimes(2);
+  // Unchanged text isn't announced, so the status is empty until this copy
+  // settles.
+  expect(status).toBeEmptyDOMElement();
+  await act(async () => finish());
+  expect(status).toHaveTextContent("URL copied.");
+});
 
 it("reports a failed URL copy with how to recover", async () => {
   const { user, copied } = mountChannel(webhookDefinition);
@@ -563,9 +607,22 @@ steps:
   );
   expect(screen.queryByRole("button", { name: /^Edit trigger/ })).toBeNull();
   expect(screen.getByText("Webhook URL")).toBeVisible();
-  expect(screen.getByTestId("webhook-address-url")).toHaveTextContent(
-    webhookUrl,
+  const address = screen.getByTestId("webhook-address-url");
+  expect(address).toHaveTextContent(webhookUrl);
+  // The steps point at the switch above the address, not at panels this tab
+  // doesn't show.
+  expect(screen.getByText(/^Lost it\?/)).toHaveTextContent(
+    /^Lost it\? Turn off Enabled in configuration above, change the trigger and save\. /,
   );
+  expect(
+    screen.queryByText(/Close these settings|Workflow settings/),
+  ).toBeNull();
+  const toggle = screen.getByRole("switch", {
+    name: "Enabled in configuration",
+  });
+  expect(
+    toggle.compareDocumentPosition(address) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Copy URL" }));
   expect(copied).toHaveBeenCalledExactlyOnceWith(webhookUrl);
   await waitFor(() =>
