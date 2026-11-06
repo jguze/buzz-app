@@ -650,6 +650,7 @@ async fn update_restart<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(
 fn commands<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         credential_service::credential_pair_answer,
+        credential_service::credential_pair_prompt,
         credential_service::credential_pairings_list,
         credential_service::credential_pairing_revoke,
         window_state::onboarding_preserve_window,
@@ -1173,6 +1174,9 @@ pub fn run() {
                 webview.state::<HostProcesses>().stop_all();
                 webview.state::<HostMcpServers>().stop_all();
                 webview.state::<app_agents::AppAgentHost>().page_load();
+                if let Some(credentials) = webview.try_state::<credential_service::CredentialService>() {
+                    credentials.page_load();
+                }
             }
             browser::page_load(webview, payload);
         })

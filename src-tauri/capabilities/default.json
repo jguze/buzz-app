@@ -43,6 +43,7 @@
     "allow-federated-identity-cancel-sign-in",
     "allow-federated-identity-sign-out",
     "allow-credential-pair-answer",
+    "allow-credential-pair-prompt",
     "allow-credential-pairings-list",
     "allow-credential-pairing-revoke",
     "allow-federated-identity-register",

@@ -111,6 +111,9 @@ struct State {
     flushed: u64,
     pending: Option<(String, oneshot::Sender<Answer>)>,
     asked: VecDeque<Instant>,
+    /// Prompts the page has listening to ask the human; with none, nothing is
+    /// asked, since nobody could answer.
+    prompts: usize,
     /// Bumped by every revoke-all; a token admitted, or an approval begun,
     /// under an earlier one never acts or is saved.
     generation: u64,
@@ -324,6 +327,13 @@ impl Pairings {
         let id = uuid::Uuid::new_v4().to_string();
         let answer = {
             let mut state = self.state();
+            // Before the rate limit: a request nobody could see spends no slot.
+            if state.prompts == 0 {
+                return Err(Failure::new(
+                    "unavailable",
+                    "Buzz can't ask you yet; finish signing in or setting up in Buzz, then pair again",
+                ));
+            }
             let now = Instant::now();
             while state
                 .asked
@@ -424,6 +434,24 @@ impl Pairings {
         if let Some((_, send)) = pending {
             let _ = send.send(answer);
         }
+    }
+
+    /// The page mounted (`true`) or unmounted a prompt that asks the human.
+    pub(crate) fn prompt(&self, mounted: bool) {
+        let mut state = self.state();
+        state.prompts = if mounted {
+            state.prompts + 1
+        } else {
+            state.prompts.saturating_sub(1)
+        };
+    }
+    /// A new page has mounted no prompt yet, and never heard a request still
+    /// waiting: dropping its sender declines it, as the old page's unmount
+    /// would have.
+    pub(crate) fn page_load(&self) {
+        let mut state = self.state();
+        state.prompts = 0;
+        state.pending = None;
     }
 
     pub(crate) async fn list(&self) -> Result<Vec<Listed>, String> {

@@ -30,17 +30,24 @@ export type PairAnswer = "allow" | "deny" | "unsaved";
 export const answerPairing = (id: string, answer: PairAnswer) =>
   invoke<void>("credential_pair_answer", { id, answer });
 
+/** Tells native a prompt began or stopped listening; while none listens,
+ * native refuses pairing at once instead of asking nobody. */
+export const setPairingPrompt = (mounted: boolean) =>
+  invoke<void>("credential_pair_prompt", { mounted });
+
 export const listPairedTools = () =>
   invoke<PairedTool[]>("credential_pairings_list");
 
 export const revokePairedTool = (id: string) =>
   invoke<void>("credential_pairing_revoke", { id });
 
-/** Calls `on` for each change; returns a function that stops listening. */
+/** Calls `on` for each change, and `ready` once every listener is in place;
+ * returns a function that stops listening. */
 export function onPairingEvents(on: {
   request?(request: PairRequest): void;
   closed?(id: string): void;
   changed?(): void;
+  ready?(): void;
 }) {
   const stops = [
     on.request &&
@@ -55,6 +62,10 @@ export function onPairingEvents(on: {
   ];
   // Without the native event channel there is nothing to approve or list.
   const listening = stops.map((stop) => stop?.catch(() => undefined));
+  void Promise.all(stops).then(
+    () => on.ready?.(),
+    () => undefined,
+  );
   return () => {
     for (const stop of listening) void stop?.then((unlisten) => unlisten?.());
   };

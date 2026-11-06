@@ -4,6 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PairingPrompt } from "./PairingPrompt";
 import { isSavedCommunity, type PairRequest } from "./service";
@@ -16,8 +17,11 @@ beforeEach(() => {
   handlers.clear();
   vi.mocked(invoke).mockReset().mockResolvedValue(undefined);
   vi.mocked(listen).mockImplementation(async (name, handler) => {
-    handlers.set(name, handler as (event: { payload: unknown }) => void);
-    return () => handlers.delete(name);
+    const own = handler as (event: { payload: unknown }) => void;
+    handlers.set(name, own);
+    return () => {
+      if (handlers.get(name) === own) handlers.delete(name);
+    };
   });
 });
 afterEach(() => {
@@ -38,6 +42,37 @@ const ask = async (payload: PairRequest) => {
   );
   act(() => handlers.get("credential-pair-request")?.({ payload }));
 };
+/** What the page told native about its prompt, in order. */
+const prompts = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === "credential_pair_prompt")
+    .map(([, args]) => args);
+/** Holds each `listen` until it is released, oldest first. As in Tauri, a
+ * handler already hears events while its listener is still being set up. */
+const holdListen = () => {
+  const held: (() => void)[] = [];
+  const listening = vi.mocked(listen).getMockImplementation();
+  vi.mocked(listen).mockImplementation(async (...args) => {
+    const released = new Promise<void>((resolve) => {
+      held.push(resolve);
+    });
+    const unlisten = await listening?.(...args);
+    await released;
+    return unlisten ?? (() => {});
+  });
+  return {
+    /** Lets the oldest listener still held finish. */
+    release: () => held.shift()?.(),
+    /** Lets every listener still held finish. */
+    releaseAll: () => {
+      for (const release of held.splice(0)) release();
+    },
+  };
+};
+/** Runs every promise reaction already queued: the mocks settle only in
+ * microtasks, which all run before the next task. */
+const settled = () => new Promise((resolve) => setTimeout(resolve));
 
 it("names the tool, community and process, with Deny focused", async () => {
   render(<PairingPrompt communities={["wss://relay.example"]} />);
@@ -103,6 +138,61 @@ it("closes when native ends the request, and when its time runs out", async () =
   expect(screen.getByRole("alertdialog")).toHaveTextContent("Expires in 2 s");
   act(() => vi.advanceTimersByTime(2000));
   expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+it("lets native ask only once it listens, and not after it leaves", async () => {
+  const listeners = holdListen();
+  const { unmount } = render(
+    <PairingPrompt communities={["wss://relay.example"]} />,
+  );
+  try {
+    await vi.waitFor(() =>
+      expect(handlers.has("credential-pair-closed")).toBe(true),
+    );
+    // While any listener is still being set up, native must not ask.
+    listeners.release();
+    await settled();
+    expect(prompts()).toEqual([]);
+  } finally {
+    listeners.releaseAll();
+  }
+  await vi.waitFor(() => expect(prompts()).toEqual([{ mounted: true }]));
+  unmount();
+  expect(prompts()).toEqual([{ mounted: true }, { mounted: false }]);
+});
+
+it("refuses a request heard after it stopped, since nobody can show it", async () => {
+  const listeners = holdListen();
+  const { unmount } = render(
+    <PairingPrompt communities={["wss://relay.example"]} />,
+  );
+  try {
+    await vi.waitFor(() =>
+      expect(handlers.has("credential-pair-request")).toBe(true),
+    );
+    unmount();
+    act(() => handlers.get("credential-pair-request")?.({ payload: request }));
+    expect(invoke).toHaveBeenCalledWith("credential_pair_answer", {
+      id: "r1",
+      answer: "deny",
+    });
+  } finally {
+    listeners.releaseAll();
+  }
+  // Once its listeners are gone, it has still never counted as listening.
+  await vi.waitFor(() => expect(handlers.size).toBe(0));
+  expect(prompts()).toEqual([]);
+});
+
+it("is mounted once under a development remount", async () => {
+  const { unmount } = render(
+    <StrictMode>
+      <PairingPrompt communities={["wss://relay.example"]} />
+    </StrictMode>,
+  );
+  await vi.waitFor(() => expect(prompts()).toEqual([{ mounted: true }]));
+  unmount();
+  expect(prompts()).toEqual([{ mounted: true }, { mounted: false }]);
 });
 
 it("matches a saved community by its whole normalized URL", () => {

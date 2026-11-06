@@ -144,14 +144,17 @@ pub(crate) fn service_over(
     human: IdentityHost,
 ) -> CredentialService {
     let notices = notices.clone();
-    CredentialService::new(
+    let service = CredentialService::new(
         host.clone(),
         "xyz.block.buzz.test".into(),
         human,
         identity.clone(),
         Arc::new(keychain.clone()),
         Arc::new(move |notice| notices.lock().unwrap().push(notice)),
-    )
+    );
+    // The page's prompt is listening, as it is once the app shell shows.
+    service.0.pairings.prompt(true);
+    service
 }
 
 fn token(env: &str) -> String {

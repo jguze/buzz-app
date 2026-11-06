@@ -116,6 +116,65 @@ fn the_page_answers_with_these_names() {
     assert!(answer(json!("Allow")).is_err());
 }
 
+#[tokio::test]
+async fn nothing_is_asked_while_no_prompt_is_mounted() {
+    let fixture = fixture();
+    // One unmount more than mounted leaves none, not a negative count.
+    fixture.service.0.pairings.prompt(false);
+    fixture.service.0.pairings.prompt(false);
+    for _ in 0..3 {
+        let reply = pair_request(&fixture.service, &[CLIENT, RELAY]).await;
+        assert_eq!(
+            error(&reply),
+            (StatusCode::SERVICE_UNAVAILABLE, "unavailable")
+        );
+        assert_eq!(
+            reply.1["message"],
+            "Buzz can't ask you yet; finish signing in or setting up in Buzz, then pair again"
+        );
+    }
+    assert!(!fixture
+        .notices
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|notice| matches!(notice, Notice::Ask(_))));
+    // A fourth request in the window pairs: the refusals spent no rate slot.
+    fixture.service.0.pairings.prompt(true);
+    paired(&fixture).await;
+}
+
+#[tokio::test]
+async fn a_page_load_unmounts_every_prompt() {
+    let fixture = fixture();
+    fixture.service.0.pairings.prompt(true);
+    fixture.service.page_load();
+    let reply = pair_request(&fixture.service, &[CLIENT, RELAY]).await;
+    assert_eq!(
+        error(&reply),
+        (StatusCode::SERVICE_UNAVAILABLE, "unavailable")
+    );
+    // The new page's prompt.
+    fixture.service.0.pairings.prompt(true);
+    paired(&fixture).await;
+}
+
+#[tokio::test]
+async fn a_page_load_declines_the_request_it_left_waiting() {
+    let fixture = fixture();
+    let service = fixture.service.clone();
+    let pairing = tokio::spawn(async move { pair_request(&service, &[CLIENT, RELAY]).await });
+    asked(&fixture.notices).await;
+    // The new page never heard it, so nobody can answer it.
+    fixture.service.page_load();
+    let reply = pairing.await.unwrap();
+    assert_eq!(error(&reply), (StatusCode::FORBIDDEN, "denied"));
+    assert_eq!(reply.1["message"], "Pairing was declined in Buzz");
+    // A retry isn't held behind it as "another pairing request is waiting".
+    fixture.service.0.pairings.prompt(true);
+    paired(&fixture).await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_unanswered_pairing_needs_approval_and_closes_its_prompt() {
     let fixture = fixture();

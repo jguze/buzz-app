@@ -99,6 +99,7 @@ fn main() {
             "federated_identity_cancel_sign_in",
             "federated_identity_sign_out",
             "credential_pair_answer",
+            "credential_pair_prompt",
             "credential_pairings_list",
             "credential_pairing_revoke",
             "federated_identity_register",
